@@ -23,16 +23,16 @@ app = Flask(__name__)
 def handle_options():
     if request.method == "OPTIONS":
         response = app.make_default_options_response()
-        response.headers["Access-Control-Allow-Origin"] = "http://127.0.0.1:5500"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
         return response
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "http://127.0.0.1:5500"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
     return response
 
 
@@ -45,13 +45,35 @@ def get_db_connection():
         port="5432"
     )
 
+def get_random_quote():
+    """Get a random quote from our own database"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT content, author FROM quotes ORDER BY RANDOM() LIMIT 1")
+        quote = cur.fetchone()
+        
+        cur.close()
+        conn.close()
+        
+        if quote:
+            return {"content": quote[0], "author": quote[1]}
+        else:
+            # Fallback to a default quote if database is empty
+            return {"content": "The only way to do great work is to love what you do", "author": "Steve Jobs"}
+    except Exception as e:
+        print(f"Database error in get_random_quote: {e}")
+        return {"content": "Database error", "author": "Error"}
+
 def get_or_create_today_quote():
+    """Get today's quote or create a new one"""
     today = date.today()
     conn = get_db_connection()
     cur = conn.cursor()
     print(f"Checking for quote for date: {today}")
 
-    # 1) Check DB
+    # 1) Check daily_quotes table
     cur.execute(
         "SELECT content, author FROM daily_quotes WHERE quote_date = %s",
         (today,)
@@ -64,34 +86,27 @@ def get_or_create_today_quote():
         conn.close()
         return {"content": row[0], "author": row[1]}
 
-    print("No quote found for today, fetching from API...")
-
-    # 2) Fetch from API
-    try:
-        response = requests.get("https://api.quotable.io/random", verify=False)
-        data = response.json()
-        content = data.get("content")
-        author = data.get("author")
-        quote_id = data.get("_id")
+    print("No quote found for today, getting random quote from our database...")
+    
+    # 2) Get random quote from our quotes table instead of API
+    random_quote = get_random_quote()
+    
+    if random_quote:
+        # 3) Save to daily_quotes table
+        cur.execute(
+            "INSERT INTO daily_quotes (quote_date, content, author, quote_id) VALUES (%s, %s, %s, %s)",
+            (today, random_quote["content"], random_quote["author"], random_quote.get("id", 1))
+        )
+        conn.commit()
+        print(f"Saved new quote for {today}: '{random_quote['content']}' - {random_quote['author']}")
         
-        print(f"Fetched quote: '{content}' - {author}")
-    except Exception as e:
-        print(f"Error fetching quote from API: {e}")
-        raise e
-
-    # 3) Insert
-    cur.execute(
-        """
-        INSERT INTO daily_quotes (quote_id, content, author, quote_date)
-        VALUES (%s, %s, %s, %s)
-        """,
-        (quote_id, content, author, today)
-    )
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
+        cur.close()
+        conn.close()
+        return random_quote
+    else:
+        cur.close()
+        conn.close()
+        return {"content": "No quotes available", "author": "Database"}
     return {"content": content, "author": author}
 
 @app.route("/api/today-quote", methods=["GET"])
