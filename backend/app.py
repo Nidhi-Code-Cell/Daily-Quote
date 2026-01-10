@@ -1,7 +1,7 @@
 from flask import Flask, jsonify,request
 # from flask_cors import CORS , cross_origin
 import json
-import psycopg2
+import psycopg
 import requests
 import urllib3
 from datetime import date, datetime, time
@@ -19,35 +19,15 @@ VAPID_EMAIL = "mailto:you@example.com"
 
 app = Flask(__name__)
 
-@app.before_request
-def handle_options():
-    if request.method == "OPTIONS":
-        response = app.make_default_options_response()
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-        return response
 
-@app.after_request
-def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-    return response
 
 @app.route("/")
 def health():
     return {"status": "backend running"}
 
-
 def get_db_connection():
-    return psycopg2.connect(
-        dbname=os.getenv("DB_NAME", "quote"),
-        user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD", "Nidhi@420"),
-        host=os.getenv("DB_HOST", "localhost"),
-        port=os.getenv("DB_PORT", "5432")
-    )
+    return psycopg.connect(os.environ["DATABASE_URL"])
+
 
 def get_random_quote():
     """Get a random quote from our own database"""
